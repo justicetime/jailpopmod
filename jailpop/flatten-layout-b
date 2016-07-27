@@ -1,0 +1,100 @@
+#!/usr/bin/env python
+
+import csv
+import sys
+import gzip
+from datetime import datetime
+
+def format_date(date):
+  try:
+      return datetime.strptime(date, '%M/%d/%Y').strftime('%Y-%m-%d')
+  except:
+      ''
+def clean_values(d):
+    d['soid'] = d['soid'].replace('SOID:', '').strip()
+    d['pob'] = d['pob'].replace('POB:', '').strip()
+    d['address'] = d['address'].replace('ADDRESS:', '').strip()
+    d['release_code'] = d['release_code'].replace('RELEASE CODE:', '').strip()
+    d['release_date'] = format_date(d['release_date'].replace('RELEASE DATE:', '').strip())
+    d['dob'] = format_date(d['dob'].strip())
+    return d
+
+fields = [ 'soid',
+           'booking_no',
+           'name',
+           'race',
+           'sex',
+           'ethnicity',
+           'dob',
+           'agency',
+           'abn',
+           'address',
+           'city',
+           'pob',
+           'release_date',
+           'release_code', ]
+
+if sys.argv[1] == '--header':
+    print(','.join(fields + ['charge_type', 'charge_desc', 'court', 'court_case_no']))
+
+else:
+    filename = sys.argv[1]
+
+    if filename.endswith('.gz'):
+        f = gzip.open(filename)
+    else:
+        f = open(filename )
+
+    csv_reader = csv.reader(f, delimiter=',', quotechar='"')
+    csv_writer = csv.writer(sys.stdout, delimiter=',', quotechar='"', lineterminator='\n')
+
+    block = []
+    blocks = []
+
+    for row in csv_reader:
+        row = [field.strip() for field in row] # Strip left/right whitespace
+        block.append(row)
+
+        for field in row:
+            if 'SOID:' in field:
+                blocks.append(block)
+                block = []
+
+    for block in blocks: # See "Example block" at end
+        head = {}
+        first_row, second_row, second_last_row, last_row  = block[0], block[1], block[-2], block[-1]
+
+        head['name'], head['booking_no'], head['agency'], head['abn'] = first_row[0], first_row[1], first_row[4], first_row[5]
+
+        head['address'], head['city'], head['pob'] = second_last_row[:3]
+
+        head['release_date'], head['release_code'], head['soid'] = last_row[:3]
+
+        head['race'] = second_row[0].split('/')[0].strip()
+        head['sex'] = second_row[0].split('/')[1].strip()
+        head['ethnicity'] = second_row[0].split('/')[2].strip()
+        head['dob'] = '/'.join(second_row[0].split('/')[3:6])
+
+        head = clean_values(head)
+
+        charge_type, charge_desc, court, court_case_no, = block[1][1:5]
+
+        charge = [charge_type, charge_desc, court, court_case_no]
+
+        csv_writer.writerow([head[field] for field in fields] + charge)
+
+        if len(block) > 4: # If more than one charge
+            for row in block[2:-3]:
+                charge = row[1:5]
+                csv_writer.writerow([head[field] for field in fields] + charge)
+
+    f.close()
+
+# Example block:
+#
+# ['ARRINGTON,JESSE', '99068448', '', '', 'HCSO', '2650', '']
+# ['B / M / N / 01/15/1946', 'CAPIAS', 'CONSUMING ON STREETS', '41C', '9933579MO', '', ''],
+# ['', 'CAPIAS', 'POSSESSION OF OPEN CONTAINER', '41C', '9922942MO', '', ''],
+# ['', '', '', '', '', '', ''],
+# ['ADDRESS: 7800 NEBRASKA AV N', 'TAMPA', 'POB: FL', '', '', '', '']
+# ['RELEASE DATE: 01/19/2000', 'RELEASE CODE: TIME SERVED', 'SOID: 308163', '', '', '', '']
